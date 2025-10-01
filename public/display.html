@@ -16,32 +16,18 @@
         font-family: Arial, sans-serif;
         flex-direction: column;
       }
-      #enableVoice {
-        font-size: 2em;
-        margin-top: 40px;
-        padding: 15px 30px;
-        background: #007bff;
-        color: #fff;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-      }
-      #enableVoice:hover {
-        background: #0056b3;
-      }
     </style>
   </head>
   <body>
     <div id="display">Numéro 0</div>
-    <button id="enableVoice">Activer la voix</button>
 
     <script>
       const display = document.getElementById("display");
-      const enableBtn = document.getElementById("enableVoice");
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${protocol}://${window.location.host}`);
 
-      let voiceEnabled = false;
+      // ✅ Voix activée par défaut
+      let voiceEnabled = true;
       const bipSound = new Audio("bip.mp3");
 
       function parler(texte) {
@@ -67,12 +53,6 @@
 
         speechSynthesis.speak(msg);
       }
-
-      enableBtn.addEventListener("click", () => {
-        voiceEnabled = true;
-        parler("Voix activée");
-        enableBtn.style.display = "none";
-      });
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
