@@ -163,4 +163,3 @@ La voix nécessite un clic initial sur “Activer la voix” (politique anti-aut
 
 Projet libre, utilisable en contexte personnel ou professionnel.
 Aucune garantie. Contributions bienvenues.
-# Queue_Management_System
