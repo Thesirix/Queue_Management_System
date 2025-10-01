@@ -16,19 +16,6 @@
         font-family: Arial, sans-serif;
         flex-direction: column;
       }
-      #enableVoice {
-        font-size: 2em;
-        margin-top: 40px;
-        padding: 15px 30px;
-        background: #007bff;
-        color: #fff;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-      }
-      #enableVoice:hover {
-        background: #0056b3;
-      }
     </style>
   </head>
   <body>
@@ -36,12 +23,11 @@
 
     <script>
       const display = document.getElementById("display");
-      const enableBtn = document.getElementById("enableVoice");
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${protocol}://${window.location.host}`);
 
-      let voiceEnabled = false;
-      let lastNumero = null;
+      // ✅ Voix activée par défaut
+      let voiceEnabled = true;
       const bipSound = new Audio("bip.mp3");
 
       function parler(texte) {
@@ -61,70 +47,29 @@
         const frenchVoice = voices.find((v) =>
           v.name.includes("Google français")
         );
-        if (frenchVoice) msg.voice = frenchVoice;
+        if (frenchVoice) {
+          msg.voice = frenchVoice;
+        }
 
         speechSynthesis.speak(msg);
       }
-
-      enableBtn.addEventListener("click", () => {
-        voiceEnabled = true;
-        parler("Voix activée");
-        enableBtn.style.display = "none";
-
-        ws.send(
-          JSON.stringify({
-            action: "log",
-            value: "Voix activée sur le Display",
-          })
-        );
-      });
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         display.textContent = "Numéro " + data.numero;
 
-        if (data.numero !== lastNumero && data.numero > 0) {
-          lastNumero = data.numero;
-
-          if (voiceEnabled) {
-            bipSound.currentTime = 0;
-            bipSound
-              .play()
-              .then(() => {
-                setTimeout(() => {
-                  parler("Numéro " + data.numero);
-                  ws.send(
-                    JSON.stringify({
-                      action: "log",
-                      value: "Annonce numéro " + data.numero,
-                    })
-                  );
-                }, 400);
-              })
-              .catch((err) => console.log("Erreur son :", err));
-          }
+        if (data.numero > 0 && voiceEnabled) {
+          bipSound.currentTime = 0;
+          bipSound
+            .play()
+            .then(() => {
+              setTimeout(() => {
+                parler("Numéro " + data.numero);
+              }, 400);
+            })
+            .catch((err) => console.log("Erreur son :", err));
         }
       };
-
-      // ✅ Gestion des touches télécommande/clavier
-      document.addEventListener("keydown", (e) => {
-        if (e.key === "ArrowRight") {
-          ws.send("next");
-        } else if (e.key === "ArrowLeft") {
-          ws.send("prev");
-        } else if (e.key.toLowerCase() === "r") {
-          ws.send("reset");
-        } else if (e.key === "Enter") {
-          voiceEnabled = !voiceEnabled;
-          if (voiceEnabled) {
-            parler("Voix activée");
-            enableBtn.style.display = "none";
-          } else {
-            enableBtn.style.display = "block";
-            parler("Voix désactivée");
-          }
-        }
-      });
     </script>
   </body>
 </html>
