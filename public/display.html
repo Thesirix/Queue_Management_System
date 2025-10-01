@@ -106,6 +106,26 @@
           }
         }
       };
+
+      // ✅ Gestion des touches télécommande/clavier
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") {
+          ws.send("next");
+        } else if (e.key === "ArrowLeft") {
+          ws.send("prev");
+        } else if (e.key.toLowerCase() === "r") {
+          ws.send("reset");
+        } else if (e.key === "Enter") {
+          voiceEnabled = !voiceEnabled;
+          if (voiceEnabled) {
+            parler("Voix activée");
+            enableBtn.style.display = "none";
+          } else {
+            enableBtn.style.display = "block";
+            parler("Voix désactivée");
+          }
+        }
+      });
     </script>
   </body>
 </html>

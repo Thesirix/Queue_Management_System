@@ -32,17 +32,6 @@ wss.on("connection", (ws) => {
       numero = parseInt(cmd.value) || 0;
     }
 
-    if (typeof cmd === "object" && cmd.action === "log") {
-      console.log("📡 Retour Display :", cmd.value);
-
-      wss.clients.forEach((client) => {
-        if (client !== ws && client.readyState === ws.OPEN) {
-          client.send(JSON.stringify({ log: cmd.value }));
-        }
-      });
-      return;
-    }
-
     wss.clients.forEach((client) => {
       if (client.readyState === ws.OPEN) {
         client.send(JSON.stringify({ numero }));
