@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Admin - File d’attente</title>
+    <style>
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        background: #222;
+        color: #fff;
+        font-family: sans-serif;
+      }
+      header {
+        text-align: center;
+        padding: 20px;
+        font-size: 2em;
+      }
+      #display {
+        text-align: center;
+        font-size: 3em;
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      footer {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 15px;
+        padding: 20px;
+        position: relative;
+      }
+      .btn-row {
+        display: flex;
+        gap: 15px;
+      }
+      button {
+        font-size: 1.5em;
+        padding: 15px 30px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #next,
+      #prev {
+        background: #007bff;
+        color: #fff;
+      }
+      #next:hover,
+      #prev:hover {
+        background: #0056b3;
+      }
+      #reset {
+        position: absolute;
+        right: 20px;
+        bottom: 20px;
+        background: #dc3545;
+        color: #fff;
+      }
+      #reset:hover {
+        background: #a71d2a;
+      }
+      #goto-container {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      #goto-input {
+        font-size: 1.2em;
+        padding: 8px;
+        width: 100px;
+        text-align: center;
+      }
+      #goto-btn {
+        background: #28a745;
+        color: #fff;
+      }
+      #goto-btn:hover {
+        background: #1e7e34;
+      }
+    </style>
+  </head>
+  <body>
+    <header>Contrôle de la file</header>
+    <div id="display">Numéro 0</div>
+    <footer>
+      <div class="btn-row">
+        <button id="prev">Précédent</button>
+        <button id="next">Suivant</button>
+      </div>
+      <div id="goto-container">
+        <input type="number" id="goto-input" placeholder="Numéro" />
+        <button id="goto-btn">Aller à</button>
+      </div>
+      <button id="reset">Reset</button>
+    </footer>
+
+    <script>
+      const display = document.getElementById("display");
+      const btnNext = document.getElementById("next");
+      const btnPrev = document.getElementById("prev");
+      const btnReset = document.getElementById("reset");
+      const btnGoto = document.getElementById("goto-btn");
+      const inputGoto = document.getElementById("goto-input");
+
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${protocol}://${window.location.host}`);
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        display.textContent = "Numéro " + data.numero;
+      };
+
+      btnNext.addEventListener("click", () => {
+        ws.send("next");
+      });
+
+      btnPrev.addEventListener("click", () => {
+        ws.send("prev");
+      });
+
+      btnReset.addEventListener("click", () => {
+        ws.send("reset");
+      });
+
+      btnGoto.addEventListener("click", () => {
+        const val = parseInt(inputGoto.value);
+        if (!isNaN(val) && val >= 0) {
+          ws.send(JSON.stringify({ action: "goto", value: val }));
+        }
+      });
+    </script>
+  </body>
+</html>

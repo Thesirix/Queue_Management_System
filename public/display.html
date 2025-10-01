@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Affichage TV</title>
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: #fff;
+        color: #d60000;
+        font-size: 10em;
+        font-weight: bold;
+        font-family: Arial, sans-serif;
+        flex-direction: column;
+      }
+      #enableVoice {
+        font-size: 2em;
+        margin-top: 40px;
+        padding: 15px 30px;
+        background: #007bff;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      #enableVoice:hover {
+        background: #0056b3;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="display">Numéro 0</div>
+    <button id="enableVoice">Activer la voix</button>
+
+    <script>
+      const display = document.getElementById("display");
+      const enableBtn = document.getElementById("enableVoice");
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${protocol}://${window.location.host}`);
+
+      let voiceEnabled = false;
+      const bipSound = new Audio("bip.mp3");
+
+      function parler(texte) {
+        if (!voiceEnabled) return;
+
+        if (speechSynthesis.speaking) {
+          speechSynthesis.cancel();
+        }
+
+        const msg = new SpeechSynthesisUtterance(texte);
+        msg.lang = "fr-FR";
+        msg.volume = 1;
+        msg.rate = 1;
+        msg.pitch = 1;
+
+        const voices = speechSynthesis.getVoices();
+        const frenchVoice = voices.find((v) =>
+          v.name.includes("Google français")
+        );
+        if (frenchVoice) {
+          msg.voice = frenchVoice;
+        }
+
+        speechSynthesis.speak(msg);
+      }
+
+      enableBtn.addEventListener("click", () => {
+        voiceEnabled = true;
+        parler("Voix activée");
+        enableBtn.style.display = "none";
+      });
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        display.textContent = "Numéro " + data.numero;
+
+        if (data.numero > 0 && voiceEnabled) {
+          bipSound.currentTime = 0;
+          bipSound
+            .play()
+            .then(() => {
+              setTimeout(() => {
+                parler("Numéro " + data.numero);
+              }, 400);
+            })
+            .catch((err) => console.log("Erreur son :", err));
+        }
+      };
+    </script>
+  </body>
+</html>
