@@ -40,6 +40,8 @@
 
         // recréer systématiquement les objets Audio
         const bip = new Audio("bip.mp3");
+        bip.playbackRate = 0.7; // 🔉 ralentit le bip (0.5 = très lent, 1 = normal)
+
         const numSound = new Audio(`${numero}.mp3`);
 
         bip
