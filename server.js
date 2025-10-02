@@ -7,10 +7,13 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 let numero = 0;
+const MAX = 99; // valeur max du rouleau
 
+// Servir les fichiers statiques
 app.use(express.static("public"));
 
 wss.on("connection", (ws) => {
+  // envoyer le numéro actuel dès la connexion
   ws.send(JSON.stringify({ numero }));
 
   ws.on("message", (message) => {
@@ -23,15 +26,22 @@ wss.on("connection", (ws) => {
     }
 
     if (cmd === "next") {
-      numero++;
+      numero = (numero + 1) % (MAX + 1); // après 99 revient à 0
     } else if (cmd === "prev") {
-      if (numero > 0) numero--;
+      numero = (numero - 1 + (MAX + 1)) % (MAX + 1); // avant 0 revient à 99
     } else if (cmd === "reset") {
       numero = 0;
+    } else if (cmd === "repeat") {
+      // 👉 ne change rien, rediffuse juste le numéro actuel
+      numero = numero;
     } else if (typeof cmd === "object" && cmd.action === "goto") {
-      numero = parseInt(cmd.value) || 0;
+      const val = parseInt(cmd.value);
+      if (!isNaN(val) && val >= 0 && val <= MAX) {
+        numero = val;
+      }
     }
 
+    // Diffuser le numéro actuel à tous les clients
     wss.clients.forEach((client) => {
       if (client.readyState === ws.OPEN) {
         client.send(JSON.stringify({ numero }));

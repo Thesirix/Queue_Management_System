@@ -38,6 +38,8 @@
       .btn-row {
         display: flex;
         gap: 15px;
+        flex-wrap: wrap;
+        justify-content: center;
       }
       button {
         font-size: 1.5em;
@@ -47,12 +49,14 @@
         cursor: pointer;
       }
       #next,
-      #prev {
+      #prev,
+      #repeat {
         background: #007bff;
         color: #fff;
       }
       #next:hover,
-      #prev:hover {
+      #prev:hover,
+      #repeat:hover {
         background: #0056b3;
       }
       #reset {
@@ -69,6 +73,7 @@
         display: flex;
         gap: 10px;
         align-items: center;
+        margin-top: 10px;
       }
       #goto-input {
         font-size: 1.2em;
@@ -92,6 +97,7 @@
       <div class="btn-row">
         <button id="prev">Précédent</button>
         <button id="next">Suivant</button>
+        <button id="repeat">Rappeler</button>
       </div>
       <div id="goto-container">
         <input type="number" id="goto-input" placeholder="Numéro" />
@@ -104,6 +110,7 @@
       const display = document.getElementById("display");
       const btnNext = document.getElementById("next");
       const btnPrev = document.getElementById("prev");
+      const btnRepeat = document.getElementById("repeat");
       const btnReset = document.getElementById("reset");
       const btnGoto = document.getElementById("goto-btn");
       const inputGoto = document.getElementById("goto-input");
@@ -124,6 +131,10 @@
 
       btnPrev.addEventListener("click", () => {
         ws.send("prev");
+      });
+
+      btnRepeat.addEventListener("click", () => {
+        ws.send("repeat");
       });
 
       btnReset.addEventListener("click", () => {

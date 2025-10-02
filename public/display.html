@@ -26,48 +26,61 @@
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${protocol}://${window.location.host}`);
 
-      // ✅ Voix activée par défaut
-      let voiceEnabled = true;
-      const bipSound = new Audio("bip.mp3");
+      let currentNumero = 0;
 
-      function parler(texte) {
-        if (!voiceEnabled) return;
+      // ✅ File d’attente audio
+      const audioQueue = [];
+      let isPlaying = false;
 
-        if (speechSynthesis.speaking) {
-          speechSynthesis.cancel();
-        }
+      function playNextInQueue() {
+        if (isPlaying || audioQueue.length === 0) return;
 
-        const msg = new SpeechSynthesisUtterance(texte);
-        msg.lang = "fr-FR";
-        msg.volume = 1;
-        msg.rate = 1;
-        msg.pitch = 1;
+        isPlaying = true;
+        const { numero } = audioQueue.shift();
 
-        const voices = speechSynthesis.getVoices();
-        const frenchVoice = voices.find((v) =>
-          v.name.includes("Google français")
-        );
-        if (frenchVoice) {
-          msg.voice = frenchVoice;
-        }
+        // recréer systématiquement les objets Audio
+        const bip = new Audio("bip.mp3");
+        const numSound = new Audio(`${numero}.mp3`);
 
-        speechSynthesis.speak(msg);
+        bip
+          .play()
+          .then(() => {
+            bip.onended = () => {
+              setTimeout(() => {
+                numSound
+                  .play()
+                  .catch((err) => console.log("Erreur num :", err));
+
+                numSound.onended = () => {
+                  isPlaying = false;
+                  playNextInQueue(); // joue le suivant si dispo
+                };
+              }, 200); // petit délai entre bip et numéro
+            };
+          })
+          .catch((err) => {
+            console.log("Erreur bip :", err);
+            isPlaying = false;
+            playNextInQueue();
+          });
+      }
+
+      function annoncerNumero(numero) {
+        audioQueue.push({ numero });
+        playNextInQueue();
       }
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        display.textContent = "Numéro " + data.numero;
 
-        if (data.numero > 0 && voiceEnabled) {
-          bipSound.currentTime = 0;
-          bipSound
-            .play()
-            .then(() => {
-              setTimeout(() => {
-                parler("Numéro " + data.numero);
-              }, 400);
-            })
-            .catch((err) => console.log("Erreur son :", err));
+        if (data.numero !== undefined) {
+          currentNumero = data.numero;
+          display.textContent = "Numéro " + currentNumero;
+          annoncerNumero(currentNumero);
+        }
+
+        if (data.action === "repeat") {
+          annoncerNumero(currentNumero);
         }
       };
     </script>
