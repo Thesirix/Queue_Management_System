@@ -27,13 +27,6 @@
         justify-content: center;
         align-items: center;
       }
-      #logs {
-        font-size: 1em;
-        color: #0f0;
-        text-align: center;
-        margin: 10px;
-        min-height: 20px;
-      }
       footer {
         display: flex;
         flex-direction: column;
@@ -95,7 +88,6 @@
   <body>
     <header>Contrôle de la file</header>
     <div id="display">Numéro 0</div>
-    <div id="logs">📡 En attente de messages du Display...</div>
     <footer>
       <div class="btn-row">
         <button id="prev">Précédent</button>
@@ -110,7 +102,6 @@
 
     <script>
       const display = document.getElementById("display");
-      const logs = document.getElementById("logs");
       const btnNext = document.getElementById("next");
       const btnPrev = document.getElementById("prev");
       const btnReset = document.getElementById("reset");
@@ -122,13 +113,8 @@
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-
         if (data.numero !== undefined) {
           display.textContent = "Numéro " + data.numero;
-        }
-
-        if (data.log) {
-          logs.textContent = "📡 " + data.log;
         }
       };
 
@@ -144,10 +130,20 @@
         ws.send("reset");
       });
 
-      btnGoto.addEventListener("click", () => {
+      // Fonction pour aller à un numéro donné
+      function gotoNumero() {
         const val = parseInt(inputGoto.value);
         if (!isNaN(val) && val >= 0) {
           ws.send(JSON.stringify({ action: "goto", value: val }));
+        }
+      }
+
+      btnGoto.addEventListener("click", gotoNumero);
+
+      // ✅ Déclenche aussi "Aller à" quand on appuie sur Entrée
+      inputGoto.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          gotoNumero();
         }
       });
     </script>
