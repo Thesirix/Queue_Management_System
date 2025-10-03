@@ -4,44 +4,118 @@
     <meta charset="UTF-8" />
     <title>Affichage TV</title>
     <style>
+      :root {
+        --accent: #d60000;
+      }
       body {
+        margin: 0;
         display: flex;
+        flex-direction: column;
         justify-content: center;
         align-items: center;
         height: 100vh;
         background: #fff;
-        color: #d60000;
+        color: var(--accent);
         font-size: 10em;
         font-weight: bold;
         font-family: Arial, sans-serif;
-        flex-direction: column;
+        overflow: hidden;
+      }
+
+      #display {
+        margin-bottom: 40px;
+        line-height: 1;
+        text-align: center;
+        position: relative;
+        z-index: 10;
+      }
+
+      /* Heure */
+      #timeWrap {
+        position: absolute;
+        top: 30px;
+        font-size: 1em;
+        font-weight: bold;
+        color: #222;
+        text-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
+        opacity: 0;
+        transform: translateX(-120%);
+      }
+
+      /* Météo */
+      #weatherWrap {
+        opacity: 0;
+        transform: translateX(-120%) scale(0.95);
+        will-change: transform, opacity;
+      }
+      #weatherBox {
+        display: inline-flex;
+        align-items: center;
+        gap: 20px;
+        padding: 28px 50px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.88);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+        color: #222;
+        font: 600 38px/1.2 system-ui, Arial, sans-serif;
+        transform: translateY(0);
+      }
+      #weatherIcon {
+        font-size: 50px;
+      }
+
+      /* Particules */
+      .particle {
+        position: absolute;
+        pointer-events: none;
+        z-index: 1;
       }
     </style>
   </head>
   <body>
+    <div id="timeWrap">--:--</div>
     <div id="display">Numéro 0</div>
+    <div id="weatherWrap">
+      <div id="weatherBox">
+        <span id="weatherIcon">⛅</span>
+        <span id="weatherText">Chargement météo…</span>
+      </div>
+    </div>
 
     <script>
+      /* =======================
+         Heure
+      ======================= */
+      const timeWrap = document.getElementById("timeWrap");
+      function updateTime() {
+        const now = new Date();
+        const h = now.getHours().toString().padStart(2, "0");
+        const m = now.getMinutes().toString().padStart(2, "0");
+        timeWrap.textContent = `${h}:${m}`;
+      }
+      updateTime();
+      setInterval(updateTime, 60000);
+
+      /* =======================
+         WebSocket + Audio queue
+      ======================= */
       const display = document.getElementById("display");
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${protocol}://${window.location.host}`);
 
       let currentNumero = 0;
-
-      // ✅ File d’attente audio
       const audioQueue = [];
       let isPlaying = false;
 
       function playNextInQueue() {
         if (isPlaying || audioQueue.length === 0) return;
-
         isPlaying = true;
         const { numero } = audioQueue.shift();
 
-        // recréer systématiquement les objets Audio
         const bip = new Audio("bip.mp3");
-        bip.playbackRate = 0.7; // 🔉 ralentit le bip (0.5 = très lent, 1 = normal)
-
+        bip.playbackRate = 0.85;
         const numSound = new Audio(`${numero}.mp3`);
 
         bip
@@ -49,19 +123,16 @@
           .then(() => {
             bip.onended = () => {
               setTimeout(() => {
-                numSound
-                  .play()
-                  .catch((err) => console.log("Erreur num :", err));
-
+                numSound.play().catch((err) => console.log("Erreur num:", err));
                 numSound.onended = () => {
                   isPlaying = false;
-                  playNextInQueue(); // joue le suivant si dispo
+                  playNextInQueue();
                 };
-              }, 200); // petit délai entre bip et numéro
+              }, 250);
             };
           })
           .catch((err) => {
-            console.log("Erreur bip :", err);
+            console.log("Erreur bip:", err);
             isPlaying = false;
             playNextInQueue();
           });
@@ -74,17 +145,196 @@
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-
         if (data.numero !== undefined) {
           currentNumero = data.numero;
           display.textContent = "Numéro " + currentNumero;
           annoncerNumero(currentNumero);
         }
-
         if (data.action === "repeat") {
           annoncerNumero(currentNumero);
         }
       };
+
+      /* =======================
+         Animations génériques
+      ======================= */
+      function animateIn(el) {
+        el.animate(
+          [
+            { opacity: 0, transform: "translateX(-120%) scale(0.95)" },
+            { opacity: 1, transform: "translateX(0) scale(1)" },
+          ],
+          { duration: 3000, fill: "forwards", easing: "ease-out" }
+        );
+        el.animate(
+          [
+            { transform: "translateY(0)" },
+            { transform: "translateY(-10px)" },
+            { transform: "translateY(0)" },
+          ],
+          { duration: 4000, iterations: 7, delay: 3000 }
+        );
+      }
+
+      function animateOut(el) {
+        el.animate(
+          [
+            { opacity: 1, transform: "translateX(0) scale(1)" },
+            { opacity: 0, transform: "translateX(120%) scale(0.95)" },
+          ],
+          { duration: 3000, fill: "forwards", easing: "ease-in" }
+        );
+      }
+
+      /* =======================
+         Météo
+      ======================= */
+      const weatherWrap = document.getElementById("weatherWrap");
+      const weatherText = document.getElementById("weatherText");
+      const weatherIcon = document.getElementById("weatherIcon");
+
+      function iconForCode(code, isDay) {
+        if ([0].includes(code)) return isDay ? "☀️" : "🌙";
+        if ([1, 2, 3].includes(code)) return "⛅";
+        if ([45, 48].includes(code)) return "🌫️";
+        if ([51, 53, 55, 56, 57].includes(code)) return "🌦️";
+        if ([61, 63, 65, 80, 81, 82].includes(code)) return "🌧️";
+        if ([66, 67, 71, 73, 75, 77, 85, 86].includes(code)) return "🌨️";
+        if ([95, 96, 99].includes(code)) return "⛈️";
+        return "🌡️";
+      }
+
+      async function refreshWeather() {
+        try {
+          const url =
+            "https://api.open-meteo.com/v1/forecast" +
+            "?latitude=43.3&longitude=5.4" +
+            "&current_weather=true&timezone=Europe%2FParis";
+          const r = await fetch(url, { cache: "no-store" });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          const w = await r.json();
+
+          const cur = w.current_weather;
+          const temp = Math.round(cur.temperature);
+          const wind = Math.round(cur.windspeed);
+          const code = cur.weathercode;
+          const isDay = cur.is_day === 1;
+
+          weatherIcon.textContent = iconForCode(code, isDay);
+          weatherText.textContent = `Marseille · ${temp}°C · ${wind} km/h`;
+        } catch (e) {
+          weatherIcon.textContent = "⚠️";
+          weatherText.textContent = "Météo indisponible";
+        }
+      }
+
+      /* =======================
+         Cycle alterné météo / heure
+      ======================= */
+      function cycleWeather() {
+        animateIn(weatherWrap);
+        setTimeout(() => animateOut(weatherWrap), 33000);
+      }
+
+      function cycleTime() {
+        animateIn(timeWrap);
+        setTimeout(() => animateOut(timeWrap), 33000);
+      }
+
+      async function startCycles() {
+        await refreshWeather();
+
+        cycleWeather();
+        setInterval(cycleWeather, 60000);
+
+        setTimeout(() => {
+          cycleTime();
+          setInterval(cycleTime, 60000);
+        }, 30000);
+      }
+
+      startCycles();
+
+      /* =======================
+         Particules abstraites variées
+      ======================= */
+      function createShapeSVG(type, size, color) {
+        let svg = "";
+        switch (type) {
+          case "circle":
+            svg = `<circle cx="${size / 2}" cy="${size / 2}" r="${
+              size / 2
+            }" fill="${color}" />`;
+            break;
+          case "square":
+            svg = `<rect width="${size}" height="${size}" fill="${color}" />`;
+            break;
+          case "triangle":
+            svg = `<polygon points="${
+              size / 2
+            },0 ${size},${size} 0,${size}" fill="${color}" />`;
+            break;
+          case "hexagon":
+            const h = size / 2;
+            svg = `<polygon points="${h},0 ${size},${h / 2} ${size},${
+              h * 1.5
+            } ${h},${size} 0,${h * 1.5} 0,${h / 2}" fill="${color}" />`;
+            break;
+          case "star":
+            svg = `<polygon points="
+              ${size * 0.5},0 
+              ${size * 0.61},${size * 0.35}
+              ${size},${size * 0.38} 
+              ${size * 0.68},${size * 0.62}
+              ${size * 0.79},${size} 
+              ${size * 0.5},${size * 0.77}
+              ${size * 0.21},${size} 
+              ${size * 0.32},${size * 0.62}
+              0,${size * 0.38} 
+              ${size * 0.39},${size * 0.35}" fill="${color}" />`;
+            break;
+        }
+        return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">${svg}</svg>`;
+      }
+
+      function createParticle() {
+        const p = document.createElement("div");
+        p.className = "particle";
+
+        const shapes = ["circle", "square", "triangle", "hexagon", "star"];
+        const type = shapes[Math.floor(Math.random() * shapes.length)];
+        const size = Math.random() * 40 + 10;
+        const color = "rgba(0,0,0," + (Math.random() * 0.5 + 0.1) + ")";
+        p.innerHTML = createShapeSVG(type, size, color);
+
+        const side = Math.random() < 0.5 ? "left" : "right";
+        const startX = side === "left" ? 150 : window.innerWidth + -50;
+        const startY = window.innerHeight - 50 - Math.random() * 200;
+        p.style.left = `${startX}px`;
+        p.style.top = `${startY}px`;
+
+        document.body.appendChild(p);
+
+        const endY = startY - (200 + Math.random() * 150);
+        const endX = startX + (side === "left" ? 100 : -100);
+
+        p.animate(
+          [
+            { transform: "translate(0,0)", opacity: 0.8 },
+            {
+              transform: `translate(${endX - startX}px, ${endY - startY}px)`,
+              opacity: 0,
+            },
+          ],
+          {
+            duration: 5000 + Math.random() * 3000,
+            easing: "ease-out",
+            fill: "forwards",
+          }
+        ).onfinish = () => p.remove();
+      }
+
+      setInterval(createParticle, 600);
     </script>
   </body>
 </html>
