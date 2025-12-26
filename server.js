@@ -1,6 +1,7 @@
 const express = require("express");
 const { WebSocketServer } = require("ws");
 const http = require("http");
+const os = require("os");
 
 const app = express();
 const server = http.createServer(app);
@@ -9,10 +10,14 @@ const wss = new WebSocketServer({ server });
 let numero = 0;
 const MAX = 99;
 
-// --------- Fichiers statiques ---------
+// =======================
+// FICHIERS STATIQUES
+// =======================
 app.use(express.static("public"));
 
-// --------- WebSocket ---------
+// =======================
+// WEBSOCKET
+// =======================
 wss.on("connection", (ws) => {
   ws.send(JSON.stringify({ numero }));
 
@@ -32,24 +37,29 @@ wss.on("connection", (ws) => {
       numero = 0;
     } else if (typeof cmd === "object" && cmd.action === "goto") {
       const val = parseInt(cmd.value);
-      if (!isNaN(val) && val >= 0 && val <= MAX) numero = val;
+      if (!isNaN(val) && val >= 0 && val <= MAX) {
+        numero = val;
+      }
     } else if (typeof cmd === "object" && cmd.action === "repeat") {
-      // rien à changer ici, le Display gère la répétition à réception
+      // géré côté display
     }
+
+    const payload = JSON.stringify({ numero });
 
     wss.clients.forEach((client) => {
       if (client.readyState === ws.OPEN) {
-        client.send(JSON.stringify({ numero }));
+        client.send(payload);
       }
     });
   });
 });
 
-// --------- /weather (Open-Meteo, pas de clé) ---------
-const WEATHER_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// =======================
+// WEATHER (Open-Meteo)
+// =======================
+const WEATHER_CACHE_TTL_MS = 5 * 60 * 1000;
 let weatherCache = { t: 0, data: null };
 
-// Codes Open-Meteo -> description FR courte
 const weatherCodeFR = {
   0: "ciel dégagé",
   1: "peu nuageux",
@@ -57,7 +67,7 @@ const weatherCodeFR = {
   3: "couvert",
   45: "brouillard",
   48: "brouillard givrant",
-  51: "bruine légère",
+  51: "bruine légère says",
   53: "bruine",
   55: "bruine forte",
   56: "bruine verglaçante légère",
@@ -83,8 +93,6 @@ const weatherCodeFR = {
 
 app.get("/weather", async (req, res) => {
   try {
-    // Par défaut : Marseille. Tu peux définir des variables d'env sur Render :
-    // WEATHER_CITY, WEATHER_LAT, WEATHER_LON
     const city = process.env.WEATHER_CITY || "Marseille";
     const lat = Number(process.env.WEATHER_LAT || "43.2965");
     const lon = Number(process.env.WEATHER_LON || "5.3698");
@@ -97,30 +105,70 @@ app.get("/weather", async (req, res) => {
     }
 
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
-
     const r = await fetch(url);
-    if (!r.ok) throw new Error(`Open-Meteo status ${r.status}`);
-    const j = await r.json();
+    if (!r.ok) throw new Error("open-meteo");
 
+    const j = await r.json();
     const cw = j.current_weather;
-    const desc = weatherCodeFR[cw.weathercode] || "météo";
 
     const payload = {
       city,
       temp: Math.round(cw.temperature),
-      desc,
+      desc: weatherCodeFR[cw.weathercode] || "météo",
     };
 
     weatherCache = { t: Date.now(), data: payload };
     res.json(payload);
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "weather_fetch_failed" });
   }
 });
 
+// =======================
+// IP LAN UNIQUEMENT
+// =======================
+function getLanIPv4() {
+  const nets = os.networkInterfaces();
+  const ips = [];
+
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (
+        net.family === "IPv4" &&
+        !net.internal &&
+        (net.address.startsWith("192.168.") || net.address.startsWith("10."))
+      ) {
+        ips.push(net.address);
+      }
+    }
+  }
+
+  return ips;
+}
+
+// =======================
+// SERVER START
+// =======================
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`✅ Serveur lancé sur http://localhost:${PORT}`);
-  console.log("👉 Admin :", `http://localhost:${PORT}/admin.html`);
-  console.log("👉 Display :", `http://localhost:${PORT}/display.html`);
+
+server.listen(PORT, "0.0.0.0", () => {
+  const ips = getLanIPv4();
+
+  console.log("\n===============================");
+  console.log(" SYSTÈME DE GESTION DE FILE");
+  console.log("===============================\n");
+
+  if (ips.length === 0) {
+    console.log(`LOCAL ONLY : http://localhost:${PORT}`);
+    console.log(`ADMIN      : http://localhost:${PORT}/admin.html`);
+    console.log(`DISPLAY    : http://localhost:${PORT}/display.html`);
+  } else {
+    ips.forEach((ip) => {
+      console.log("👉 LIENS À COPIER POUR LES AGENTS\n");
+      console.log(`ADMIN     : http://${ip}:${PORT}/admin.html`);
+      console.log(`DISPLAY 1 : http://${ip}:${PORT}/display.html`);
+    });
+  }
+
+  console.log("ℹ️ Ne pas fermer cette fenêtre");
 });
