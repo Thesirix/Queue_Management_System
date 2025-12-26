@@ -5,8 +5,15 @@ const os = require("os");
 
 const app = express();
 const server = http.createServer(app);
+
+// =======================
+// WEBSOCKET SERVER
+// =======================
 const wss = new WebSocketServer({ server });
 
+// =======================
+// ETAT METIER
+// =======================
 let numero = 0;
 const MAX = 99;
 
@@ -16,7 +23,7 @@ const MAX = 99;
 app.use(express.static("public"));
 
 // =======================
-// WEBSOCKET
+// WEBSOCKET LOGIQUE
 // =======================
 wss.on("connection", (ws) => {
   ws.send(JSON.stringify({ numero }));
@@ -55,6 +62,19 @@ wss.on("connection", (ws) => {
 });
 
 // =======================
+// GESTION ERREUR WEBSOCKET
+// =======================
+wss.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    afficherServeurDejaLance();
+    process.exit(0);
+  } else {
+    console.error(err);
+    process.exit(1);
+  }
+});
+
+// =======================
 // WEATHER (Open-Meteo)
 // =======================
 const WEATHER_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -67,7 +87,7 @@ const weatherCodeFR = {
   3: "couvert",
   45: "brouillard",
   48: "brouillard givrant",
-  51: "bruine légère says",
+  51: "bruine légère",
   53: "bruine",
   55: "bruine forte",
   56: "bruine verglaçante légère",
@@ -142,12 +162,37 @@ function getLanIPv4() {
       }
     }
   }
-
   return ips;
 }
 
 // =======================
-// SERVER START
+// MESSAGE SERVEUR DEJA LANCE
+// =======================
+function afficherServeurDejaLance() {
+  console.log("\n===============================");
+  console.log(" SERVEUR DEJA EN ROUTE");
+  console.log("===============================\n");
+  console.log("⚠️ Le serveur est déjà démarré sur ce poste.");
+  console.log("Merci de fermer cette fenêtre.\n");
+  console.log("👉 Utilisez les liens affichés dans la première fenêtre");
+  console.log("ℹ️ Une seule instance du serveur est autorisée\n");
+}
+
+// =======================
+// GESTION ERREUR HTTP
+// =======================
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    afficherServeurDejaLance();
+    process.exit(0);
+  } else {
+    console.error(err);
+    process.exit(1);
+  }
+});
+
+// =======================
+// DEMARRAGE SERVEUR
 // =======================
 const PORT = process.env.PORT || 3000;
 
@@ -155,7 +200,7 @@ server.listen(PORT, "0.0.0.0", () => {
   const ips = getLanIPv4();
 
   console.log("\n===============================");
-  console.log(" SYSTÈME DE GESTION DE FILE");
+  console.log(" Systeme de file d'Attente");
   console.log("===============================\n");
 
   if (ips.length === 0) {
@@ -164,9 +209,9 @@ server.listen(PORT, "0.0.0.0", () => {
     console.log(`DISPLAY    : http://localhost:${PORT}/display.html`);
   } else {
     ips.forEach((ip) => {
-      console.log("👉 LIENS À COPIER POUR LES AGENTS\n");
+      console.log("👉 LIENS A COPIER POUR LES AGENTS\n");
       console.log(`ADMIN     : http://${ip}:${PORT}/admin.html`);
-      console.log(`DISPLAY 1 : http://${ip}:${PORT}/display.html`);
+      console.log(`DISPLAY 1 : http://${ip}:${PORT}/display.html\n`);
     });
   }
 
