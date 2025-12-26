@@ -2,28 +2,121 @@ const express = require("express");
 const { WebSocketServer } = require("ws");
 const http = require("http");
 const os = require("os");
+const dgram = require("dgram");
+const path = require("path");
+const crypto = require("crypto");
 
+// =======================
+// INIT
+// =======================
 const app = express();
 const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
 
 // =======================
-// WEBSOCKET SERVER
+// CONFIG
 // =======================
-const wss = new WebSocketServer({ server });
+const PORT = process.env.PORT || 3000;
+const MAX = 99;
+
+const UDP_PORT = 41234;
+const UDP_WHO = "WHO_IS_SERVER";
+const UDP_ANNOUNCE = "QUEUE_SERVER_HERE";
+
+const FIND_RETRIES = 4;
+const FIND_INTERVAL_MS = 350;
+const FIND_TIMEOUT_MS = 1800;
+const ANNOUNCE_EVERY_MS = 800;
+
+// =======================
+// COULEURS CONSOLE
+// =======================
+const RESET = "\x1b[0m";
+const BLUE = "\x1b[38;5;45m";
+const GREEN = "\x1b[32m";
+const RED = "\x1b[38;5;196m";
+const YELLOW = "\x1b[33m";
+const CYAN = "\x1b[36m";
 
 // =======================
 // ETAT METIER
 // =======================
 let numero = 0;
-const MAX = 99;
+const instanceId = crypto.randomBytes(6).toString("hex");
+
+// =======================
+// IP / BROADCAST
+// =======================
+let cachedLanIPs = [];
+let cachedBroadcasts = [];
+
+// Convertit IP → entier
+function ipToInt(ip) {
+  const p = ip.split(".").map(Number);
+  if (p.length !== 4 || p.some(Number.isNaN)) return 0;
+  return ((p[0] << 24) >>> 0) + (p[1] << 16) + (p[2] << 8) + p[3];
+}
+
+// Calcule l’adresse broadcast de l’IP
+function computeBroadcast(ip, mask) {
+  const i = ipToInt(ip);
+  const m = ipToInt(mask);
+  if (!i || !m) return null;
+  const b = (i & m) | (~m >>> 0);
+  return [(b >>> 24) & 255, (b >>> 16) & 255, (b >>> 8) & 255, b & 255].join(
+    "."
+  );
+}
+
+// Détecte les IP LAN (filtre 172.x)
+function detectLanIPv4() {
+  const nets = os.networkInterfaces();
+  cachedLanIPs = [];
+  cachedBroadcasts = [];
+
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family !== "IPv4" || net.internal) continue;
+
+      const ip = net.address;
+      const mask = net.netmask;
+
+      // on exclut les réseaux virtuels 172.x
+      if (ip.startsWith("172.")) continue;
+
+      // priorité 192.168 > 10.x
+      if (ip.startsWith("192.168.") || ip.startsWith("10.")) {
+        cachedLanIPs.push(ip);
+        const bc = computeBroadcast(ip, mask);
+        if (bc) cachedBroadcasts.push(bc);
+      }
+    }
+  }
+
+  cachedLanIPs = [...new Set(cachedLanIPs)];
+  cachedBroadcasts = [...new Set(cachedBroadcasts)];
+
+  cachedBroadcasts.push("255.255.255.255");
+
+  console.log(
+    `${CYAN}[DEBUG] IP LAN détectées: ${cachedLanIPs.join(", ")}${RESET}`
+  );
+  console.log(
+    `${CYAN}[DEBUG] Broadcasts: ${cachedBroadcasts.join(", ")}${RESET}`
+  );
+}
+
+function getPrimaryIp() {
+  return cachedLanIPs[0] || "127.0.0.1";
+}
 
 // =======================
 // FICHIERS STATIQUES
 // =======================
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, "public")));
 
 // =======================
-// WEBSOCKET LOGIQUE
+// WEBSOCKET
 // =======================
 wss.on("connection", (ws) => {
   ws.send(JSON.stringify({ numero }));
@@ -36,46 +129,21 @@ wss.on("connection", (ws) => {
       cmd = message.toString();
     }
 
-    if (cmd === "next") {
-      numero = (numero + 1) % (MAX + 1);
-    } else if (cmd === "prev") {
-      numero = (numero - 1 + (MAX + 1)) % (MAX + 1);
-    } else if (cmd === "reset") {
-      numero = 0;
-    } else if (typeof cmd === "object" && cmd.action === "goto") {
-      const val = parseInt(cmd.value);
-      if (!isNaN(val) && val >= 0 && val <= MAX) {
-        numero = val;
-      }
-    } else if (typeof cmd === "object" && cmd.action === "repeat") {
-      // géré côté display
+    if (cmd === "next") numero = (numero + 1) % (MAX + 1);
+    else if (cmd === "prev") numero = (numero - 1 + (MAX + 1)) % (MAX + 1);
+    else if (cmd === "reset") numero = 0;
+    else if (cmd?.action === "goto") {
+      const v = parseInt(cmd.value);
+      if (!isNaN(v) && v >= 0 && v <= MAX) numero = v;
     }
 
     const payload = JSON.stringify({ numero });
-
-    wss.clients.forEach((client) => {
-      if (client.readyState === ws.OPEN) {
-        client.send(payload);
-      }
-    });
+    wss.clients.forEach((c) => c.readyState === ws.OPEN && c.send(payload));
   });
 });
 
 // =======================
-// GESTION ERREUR WEBSOCKET
-// =======================
-wss.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    afficherServeurDejaLance();
-    process.exit(0);
-  } else {
-    console.error(err);
-    process.exit(1);
-  }
-});
-
-// =======================
-// WEATHER (Open-Meteo)
+// WEATHER
 // =======================
 const WEATHER_CACHE_TTL_MS = 5 * 60 * 1000;
 let weatherCache = { t: 0, data: null };
@@ -111,12 +179,8 @@ const weatherCodeFR = {
   97: "orage grêle fort",
 };
 
-app.get("/weather", async (req, res) => {
+app.get("/weather", async (_, res) => {
   try {
-    const city = process.env.WEATHER_CITY || "Marseille";
-    const lat = Number(process.env.WEATHER_LAT || "43.2965");
-    const lon = Number(process.env.WEATHER_LON || "5.3698");
-
     if (
       weatherCache.data &&
       Date.now() - weatherCache.t < WEATHER_CACHE_TTL_MS
@@ -124,96 +188,188 @@ app.get("/weather", async (req, res) => {
       return res.json(weatherCache.data);
     }
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("open-meteo");
-
+    const r = await fetch(
+      "https://api.open-meteo.com/v1/forecast?latitude=43.2965&longitude=5.3698&current_weather=true"
+    );
     const j = await r.json();
-    const cw = j.current_weather;
 
-    const payload = {
-      city,
-      temp: Math.round(cw.temperature),
-      desc: weatherCodeFR[cw.weathercode] || "météo",
+    weatherCache = {
+      t: Date.now(),
+      data: {
+        city: "Marseille",
+        temp: Math.round(j.current_weather.temperature),
+        desc: weatherCodeFR[j.current_weather.weathercode] || "météo",
+      },
     };
 
-    weatherCache = { t: Date.now(), data: payload };
-    res.json(payload);
+    res.json(weatherCache.data);
   } catch {
     res.status(500).json({ error: "weather_fetch_failed" });
   }
 });
 
 // =======================
-// IP LAN UNIQUEMENT
+// AFFICHAGE
 // =======================
-function getLanIPv4() {
-  const nets = os.networkInterfaces();
-  const ips = [];
+function afficherLiens(ip) {
+  console.log(`ADMIN   : ${BLUE}http://${ip}:${PORT}/admin.html${RESET}`);
+  console.log(`DISPLAY : ${BLUE}http://${ip}:${PORT}/display.html${RESET}\n`);
+}
 
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (
-        net.family === "IPv4" &&
-        !net.internal &&
-        (net.address.startsWith("192.168.") || net.address.startsWith("10."))
-      ) {
-        ips.push(net.address);
+function afficherServeurDejaActif(ip) {
+  console.log("\n===============================");
+  console.log(`${RED} SERVEUR DÉJÀ ACTIF ${RESET}`);
+  console.log("===============================\n");
+  afficherLiens(ip);
+  console.log("Appuyez sur Entrée pour fermer...");
+}
+
+// =======================
+// UDP FIND SERVER
+// =======================
+function findActiveServer(cb) {
+  console.log(`${CYAN}[DEBUG] Recherche serveur existant...${RESET}`);
+
+  const socket = dgram.createSocket("udp4");
+  let done = false;
+
+  socket.on("message", (msg, rinfo) => {
+    const s = msg.toString();
+    if (!s.startsWith(UDP_ANNOUNCE)) return;
+
+    const [, ip, id] = s.split("|");
+    if (id === instanceId) return;
+
+    console.log(`${GREEN}[DEBUG] Serveur trouvé: ${ip}${RESET}`);
+
+    done = true;
+    socket.close();
+    cb(ip);
+  });
+
+  socket.bind(() => {
+    socket.setBroadcast(true);
+
+    let tries = 0;
+    const buf = Buffer.from(UDP_WHO);
+
+    const interval = setInterval(() => {
+      if (done) return clearInterval(interval);
+
+      tries++;
+      console.log(`${CYAN}[DEBUG] WHO (${tries}/${FIND_RETRIES})${RESET}`);
+
+      cachedBroadcasts.forEach((b) => socket.send(buf, UDP_PORT, b));
+      cachedLanIPs.forEach((ip) => socket.send(buf, UDP_PORT, ip));
+
+      if (tries >= FIND_RETRIES) clearInterval(interval);
+    }, FIND_INTERVAL_MS);
+
+    setTimeout(() => {
+      if (!done) {
+        console.log(`${YELLOW}[DEBUG] Aucun serveur détecté${RESET}`);
+        socket.close();
+        cb(null);
+      }
+    }, FIND_TIMEOUT_MS);
+  });
+}
+
+// =======================
+// UDP SERVER MODE
+// =======================
+function startUdpServer(onDetected) {
+  console.log(`${CYAN}[DEBUG] Activation UDP (serveur)${RESET}`);
+
+  const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+
+  socket.on("message", (msg, rinfo) => {
+    const s = msg.toString();
+
+    if (s === UDP_WHO) {
+      const payload = Buffer.from(
+        `${UDP_ANNOUNCE}|${getPrimaryIp()}|${instanceId}`
+      );
+      socket.send(payload, rinfo.port, rinfo.address);
+      return;
+    }
+
+    if (s.startsWith(UDP_ANNOUNCE)) {
+      const [, ip, id] = s.split("|");
+      if (id !== instanceId) {
+        console.log(
+          `${RED}[DEBUG] Autre serveur détecté (${ip}) -> arrêt${RESET}`
+        );
+        onDetected(ip);
       }
     }
-  }
-  return ips;
+  });
+
+  socket.bind(UDP_PORT, () => {
+    socket.setBroadcast(true);
+    console.log(`${GREEN}UDP actif sur port ${UDP_PORT}${RESET}`);
+  });
+
+  const timer = setInterval(() => {
+    const payload = Buffer.from(
+      `${UDP_ANNOUNCE}|${getPrimaryIp()}|${instanceId}`
+    );
+    cachedBroadcasts.forEach((b) => socket.send(payload, UDP_PORT, b));
+  }, ANNOUNCE_EVERY_MS);
+
+  return {
+    stop() {
+      clearInterval(timer);
+      socket.close();
+    },
+  };
 }
 
 // =======================
-// MESSAGE SERVEUR DEJA LANCE
+// STOP TOUT
 // =======================
-function afficherServeurDejaLance() {
-  console.log("\n===============================");
-  console.log(" SERVEUR DEJA EN ROUTE");
-  console.log("===============================\n");
-  console.log("⚠️ Le serveur est déjà démarré sur ce poste.");
-  console.log("Merci de fermer cette fenêtre.\n");
-  console.log("👉 Utilisez les liens affichés dans la première fenêtre");
-  console.log("ℹ️ Une seule instance du serveur est autorisée\n");
+function stopAll(udp) {
+  try {
+    udp?.stop();
+  } catch {}
+  try {
+    wss.close();
+  } catch {}
+  try {
+    server.close();
+  } catch {}
 }
 
 // =======================
-// GESTION ERREUR HTTP
+// START
 // =======================
-server.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    afficherServeurDejaLance();
-    process.exit(0);
-  } else {
-    console.error(err);
-    process.exit(1);
-  }
-});
+console.log(`${CYAN}========================================${RESET}`);
+console.log(`${CYAN}     DEMARRAGE DU SYSTEME DE FILE      ${RESET}`);
+console.log(`${CYAN}========================================${RESET}\n`);
 
-// =======================
-// DEMARRAGE SERVEUR
-// =======================
-const PORT = process.env.PORT || 3000;
+detectLanIPv4();
 
-server.listen(PORT, "0.0.0.0", () => {
-  const ips = getLanIPv4();
-
-  console.log("\n===============================");
-  console.log(" Systeme de file d'Attente");
-  console.log("===============================\n");
-
-  if (ips.length === 0) {
-    console.log(`LOCAL ONLY : http://localhost:${PORT}`);
-    console.log(`ADMIN      : http://localhost:${PORT}/admin.html`);
-    console.log(`DISPLAY    : http://localhost:${PORT}/display.html`);
-  } else {
-    ips.forEach((ip) => {
-      console.log("👉 LIENS A COPIER POUR LES AGENTS\n");
-      console.log(`ADMIN     : http://${ip}:${PORT}/admin.html`);
-      console.log(`DISPLAY 1 : http://${ip}:${PORT}/display.html\n`);
-    });
+findActiveServer((foundIp) => {
+  if (foundIp) {
+    afficherServeurDejaActif(foundIp);
+    process.stdin.resume();
+    process.stdin.on("data", () => process.exit(0));
+    return;
   }
 
-  console.log("ℹ️ Ne pas fermer cette fenêtre");
+  console.log(`${GREEN}[DEBUG] Aucun serveur trouvé → lancement${RESET}`);
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(
+      `${GREEN}Le système de file d’attente est en service${RESET}\n`
+    );
+    cachedLanIPs.forEach(afficherLiens);
+  });
+
+  const udp = startUdpServer((ip) => {
+    stopAll(udp);
+    afficherServeurDejaActif(ip);
+    process.stdin.resume();
+    process.stdin.on("data", () => process.exit(0));
+  });
 });
